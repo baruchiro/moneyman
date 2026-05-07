@@ -1,10 +1,17 @@
 name: Create and publish a Docker image
 
 on:
+  push:
+    branches:
+      - release
   schedule:
     # Bi-daily at 06:00 and 18:00 UTC
     - cron: "0 6,18 * * *"
   workflow_dispatch:
+
+concurrency:
+  group: docker-publish-release
+  cancel-in-progress: true
 
 env:
   REGISTRY: ghcr.io
@@ -20,6 +27,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v6
         with:
+          ref: release
           fetch-depth: 0
 
       - name: Check if release needed
