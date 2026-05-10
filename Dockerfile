@@ -4,7 +4,7 @@ ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
 
 WORKDIR /app
 
-COPY package.json package-lock.json tsconfig.json .node-version ./
+COPY package.json package-lock.json tsconfig.json ./
 COPY patches ./patches
 
 RUN npm ci
