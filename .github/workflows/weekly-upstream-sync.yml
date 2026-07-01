@@ -1,58 +1,41 @@
 name: Weekly upstream sync
 
-# Keeps this fork in sync with upstream (daniel-hauser/moneyman) without ever
-# advancing the production `release` branch unreviewed. It runs two steps:
+# Keeps this fork in sync with upstream (daniel-hauser/moneyman) while gating the
+# production `release` branch behind review:
+#   1. update-main     – pull upstream/main into `main`.
+#   2. propose-release – if `main` moved ahead of `release`, open a PR
+#                        main → release. Merging it triggers the Docker publish +
+#                        GitHub release (see build.yml), so `release` never
+#                        advances unreviewed.
 #
-#   1. update-main    – bring `main` up to date with upstream/main. By default
-#                       this opens a PR into `main` (mode: pr). With mode: pull
-#                       it fast-forwards `main` directly when possible and only
-#                       falls back to a PR if `main` has diverged.
-#   2. propose-release – open a PR from `main` into `release` so upstream changes
-#                        reach production only after review. Merging that PR is
-#                        what triggers the Docker publish + GitHub release
-#                        (see build.yml), so `release` never moves on its own.
-#
-# NOTE: opening PRs from a workflow requires "Allow GitHub Actions to create and
-# approve pull requests" to be enabled under Settings → Actions → General.
-# All PRs are internal to this fork; nothing is pushed to upstream.
+# NOTE: opening the release PR requires "Allow GitHub Actions to create and
+# approve pull requests" (Settings → Actions → General). All PRs are internal to
+# this fork; nothing is pushed to upstream.
 
 on:
   schedule:
     # Weekly, Monday 05:00 UTC
     - cron: "0 5 * * 1"
   workflow_dispatch:
-    inputs:
-      main_sync_mode:
-        description: "How to update main from upstream"
-        type: choice
-        required: false
-        default: pr
-        options:
-          - pr # open a PR into main (review the upstream sync)
-          - pull # fast-forward main directly, fall back to PR if diverged
 
 concurrency:
   group: weekly-upstream-sync
   cancel-in-progress: false
 
-# Least-privilege default; each job narrows/grants what it actually needs.
 permissions:
   contents: read
 
 env:
-  UPSTREAM_REPO: daniel-hauser/moneyman
   UPSTREAM_URL: https://github.com/daniel-hauser/moneyman.git
   MAIN_BRANCH: main
   RELEASE_BRANCH: release
-  SYNC_BRANCH: sync/upstream-main
 
 jobs:
   update-main:
     runs-on: ubuntu-latest
-    # Pushes the sync branch (and main, in pull mode) and opens a PR.
+    # Pushes upstream changes into main.
     permissions:
       contents: write
-      pull-requests: write
     steps:
       - name: Checkout main
         uses: actions/checkout@v6
@@ -65,57 +48,26 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-      - name: Fetch upstream
+      - name: Pull upstream into main
         run: |
+          set -euo pipefail
           git remote add upstream "$UPSTREAM_URL" 2>/dev/null || git remote set-url upstream "$UPSTREAM_URL"
           git fetch --no-tags upstream "$MAIN_BRANCH"
 
-      - name: Sync main from upstream
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          MODE: ${{ github.event.inputs.main_sync_mode || 'pr' }}
-        run: |
-          set -euo pipefail
-
-          UPSTREAM_SHA=$(git rev-parse upstream/"$MAIN_BRANCH")
-          MAIN_SHA=$(git rev-parse origin/"$MAIN_BRANCH")
-          echo "upstream/$MAIN_BRANCH = $UPSTREAM_SHA"
-          echo "origin/$MAIN_BRANCH   = $MAIN_SHA"
-
-          if git merge-base --is-ancestor "$UPSTREAM_SHA" "$MAIN_SHA"; then
-            echo "✅ main already contains upstream/$MAIN_BRANCH — nothing to sync."
+          if git merge-base --is-ancestor upstream/"$MAIN_BRANCH" HEAD; then
+            echo "✅ main already up to date with upstream — nothing to pull."
             exit 0
           fi
 
-          echo "🆕 upstream/$MAIN_BRANCH has commits not in main."
-
-          if [ "$MODE" = "pull" ] && git merge-base --is-ancestor "$MAIN_SHA" "$UPSTREAM_SHA"; then
-            echo "Fast-forwarding $MAIN_BRANCH to upstream (mode: pull)..."
-            git push origin "$UPSTREAM_SHA":refs/heads/"$MAIN_BRANCH"
-            echo "✅ main fast-forwarded to $UPSTREAM_SHA"
-            exit 0
-          fi
-
-          # Default path: propose the upstream changes via a PR into main.
-          # The sync branch is set to the upstream tip; merging the PR brings
-          # upstream in while preserving fork-only files that live on main.
-          echo "Opening/refreshing PR to update $MAIN_BRANCH from upstream (mode: $MODE)..."
-          git push origin --force "$UPSTREAM_SHA":refs/heads/"$SYNC_BRANCH"
-
-          if [ "$(gh pr list --base "$MAIN_BRANCH" --head "$SYNC_BRANCH" --state open --json number --jq 'length')" -eq 0 ]; then
-            gh pr create \
-              --base "$MAIN_BRANCH" \
-              --head "$SYNC_BRANCH" \
-              --title "chore: sync main with upstream ($UPSTREAM_REPO)" \
-              --body "$(printf 'Automated weekly sync of `%s` with `%s@%s`.\n\nMerge to bring the latest upstream changes into `%s`. Fork-only files on `%s` are preserved by the merge.\n\n_Generated by the Weekly upstream sync workflow._' "$MAIN_BRANCH" "$UPSTREAM_REPO" "$MAIN_BRANCH" "$MAIN_BRANCH" "$MAIN_BRANCH")"
-          else
-            echo "A sync PR from $SYNC_BRANCH into $MAIN_BRANCH is already open — refreshed its branch head."
-          fi
+          echo "🆕 Pulling upstream/$MAIN_BRANCH into $MAIN_BRANCH..."
+          git merge --no-edit upstream/"$MAIN_BRANCH"
+          git push origin HEAD:"$MAIN_BRANCH"
+          echo "✅ main updated from upstream."
 
   propose-release:
     needs: update-main
     runs-on: ubuntu-latest
-    # Only reads branches and opens a PR — no content pushes.
+    # Reads branches and opens the release PR.
     permissions:
       contents: read
       pull-requests: write
@@ -147,7 +99,7 @@ jobs:
               --base "$RELEASE_BRANCH" \
               --head "$MAIN_BRANCH" \
               --title "chore: promote main to release" \
-              --body "$(printf 'Automated PR promoting `%s` into `%s`.\n\nMerging publishes a new Docker image and GitHub release (see build.yml), so nothing reaches `%s` without review. Resolve any conflicts with fork customizations in this PR before merging.\n\n_Generated by the Weekly upstream sync workflow._' "$MAIN_BRANCH" "$RELEASE_BRANCH" "$RELEASE_BRANCH")"
+              --body "$(printf 'Automated PR promoting `%s` into `%s` after syncing from upstream.\n\nMerging publishes a new Docker image and GitHub release (see build.yml), so nothing reaches `%s` without review. Resolve any conflicts with fork customizations in this PR before merging.\n\n_Generated by the Weekly upstream sync workflow._' "$MAIN_BRANCH" "$RELEASE_BRANCH" "$RELEASE_BRANCH")"
           else
             echo "A $MAIN_BRANCH → $RELEASE_BRANCH PR is already open."
           fi
