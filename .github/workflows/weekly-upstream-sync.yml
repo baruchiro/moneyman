@@ -35,9 +35,9 @@ concurrency:
   group: weekly-upstream-sync
   cancel-in-progress: false
 
+# Least-privilege default; each job narrows/grants what it actually needs.
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
 
 env:
   UPSTREAM_REPO: daniel-hauser/moneyman
@@ -49,6 +49,10 @@ env:
 jobs:
   update-main:
     runs-on: ubuntu-latest
+    # Pushes the sync branch (and main, in pull mode) and opens a PR.
+    permissions:
+      contents: write
+      pull-requests: write
     steps:
       - name: Checkout main
         uses: actions/checkout@v6
@@ -111,6 +115,10 @@ jobs:
   propose-release:
     needs: update-main
     runs-on: ubuntu-latest
+    # Only reads branches and opens a PR — no content pushes.
+    permissions:
+      contents: read
+      pull-requests: write
     steps:
       - name: Checkout
         uses: actions/checkout@v6
