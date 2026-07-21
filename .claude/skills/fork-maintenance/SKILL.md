@@ -9,11 +9,11 @@ This repository is a **fork** of [`daniel-hauser/moneyman`](https://github.com/d
 
 ## Branch model
 
-| Branch | Role | Rule |
-| --- | --- | --- |
-| `main` | Pristine mirror of `upstream/main`. | **Must stay byte-equal to upstream.** Never commit fork-specific changes here — a fork-only file on `main` breaks equality and leaks into any branch cut from `main` for an upstream PR. |
-| `release` | **Default branch** + production. `= main` + fork customizations. | Every push to `release` publishes a Docker image + GitHub release via `.github/workflows/build.yml`. Nothing lands here except through a promotion/PR. |
-| feature branches | Short-lived, one change each. | Base them on `main` or `release` depending on where the change belongs (see Flow 2). |
+| Branch           | Role                                                             | Rule                                                                                                                                                                                     |
+| ---------------- | ---------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `main`           | Pristine mirror of `upstream/main`.                              | **Must stay byte-equal to upstream.** Never commit fork-specific changes here — a fork-only file on `main` breaks equality and leaks into any branch cut from `main` for an upstream PR. |
+| `release`        | **Default branch** + production. `= main` + fork customizations. | Every push to `release` publishes a Docker image + GitHub release via `.github/workflows/build.yml`. Nothing lands here except through a promotion/PR.                                   |
+| feature branches | Short-lived, one change each.                                    | Base them on `main` or `release` depending on where the change belongs (see Flow 2).                                                                                                     |
 
 `release` is the **default branch** on purpose: scheduled/`workflow_dispatch` workflows only fire from the default branch, and keeping `release` (not `main`) as default lets the automation run while `main` stays a clean mirror.
 
@@ -30,7 +30,7 @@ Never merge fork customizations into `main`. If `main` ever diverges from upstre
 
 Decide the target **before** choosing the base branch:
 
-- **Contribute back to upstream** (e.g. a dependency bump upstream should also take): branch off **`main`**, make **one clean commit**, and open a *cross-fork* PR (base `daniel-hauser/moneyman:main`, head `baruchiro/moneyman:<branch>`). Because `main` is a pristine mirror, the PR is exactly your single commit. Do **not** branch off `release` for this — `release` carries all the fork divergence, so the PR would show dozens of unrelated commits.
+- **Contribute back to upstream** (e.g. a dependency bump upstream should also take): branch off **`main`**, make **one clean commit**, and open a _cross-fork_ PR (base `daniel-hauser/moneyman:main`, head `baruchiro/moneyman:<branch>`). Because `main` is a pristine mirror, the PR is exactly your single commit. Do **not** branch off `release` for this — `release` carries all the fork divergence, so the PR would show dozens of unrelated commits.
 - **Fork-only change** (Actual Budget code, CI, dependency pins that upstream doesn't want): branch off **`release`** and open a PR into `release`.
 
 A change can flow both ways: contribute it to upstream from a `main`-based branch, and it will reach `release` naturally through Flow 3 once upstream (and then `main`) has it.
